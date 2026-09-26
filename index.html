@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0F172A" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="ReportR" />
+  
+  <title>ReportR • Digital Camera Reports</title>
+  
+  <!-- Manifest & Favicon -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233B82F6'><path d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm2 2h4v2H6V8zm0 4h8v2H6v-2zm0 4h12v2H6v-2z'/></svg>" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233B82F6'><path d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm2 2h4v2H6V8zm0 4h8v2H6v-2zm0 4h12v2H6v-2z'/></svg>" />
+
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- React & Babel for Single-File Standalone Execution -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      background-color: #0B0F17;
+      color: #F3F4F6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    /* Hide scrollbars for slick mobile look */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="antialiased selection:bg-blue-600 selection:text-white">
+  <div id="root"></div>
+
+  <!-- Register Service Worker for Offline Functionality -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('ReportR ServiceWorker registered:', reg.scope))
+          .catch(err => console.log('ReportR ServiceWorker registration failed:', err));
+      });
+    }
+  </script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- MAIN REPORTR COMPONENT LOGIC ---
+    function ReportRApp() {
+      // Load saved state or default setup
+      const [prod, setProd] = useState(() => {
+        const saved = localStorage.getItem('reportr_prod');
+        return saved ? JSON.parse(saved) : {
+          title: "UNTITLED PRODUCTION",
+          director: "DIR NAME",
+          dop: "DP NAME",
+          cameraUnit: "A CAM",
+          cameraModel: "ARRI ALEXA Mini LF",
+          fps: "24",
+          resolution: "4.5K Open Gate",
+          codec: "ARRIRAW"
+        };
+      });
+
+      const [rolls, setRolls] = useState(() => {
+        const saved = localStorage.getItem('reportr_rolls');
+        return saved ? JSON.parse(saved) : [{
+          id: "A001",
+          mag: "001",
+          capacityGB: 1000,
+          usedGB: 42.5,
+          soundRoll: "SR001",
+          status: "ACTIVE",
+          codec: "ARRIRAW",
+          fps: "24",
+          notes: "Initial roll"
+        }];
+      });
+
+      const [activeRollId, setActiveRollId] = useState("A001");
+      const activeRoll = rolls.find(r => r.id === activeRollId) || rolls[0] || {};
+
+      const [slate, setSlate] = useState({
+        scene: "101",
+        shot: "A",
+        take: 1,
+        lens: "35mm",
+        tStop: "T2.0",
+        distance: "6' 6\"",
+        filter: "Clear",
+        notes: ""
+      });
+
+      const [takes, setTakes] = useState(() => {
+        const saved = localStorage.getItem('reportr_takes');
+        return saved ? JSON.parse(saved) : [];
+      });
+
+      // Quick-tap Presets State
+      const [userPresets, setUserPresets] = useState(() => {
+        const saved = localStorage.getItem('reportr_user_presets');
+        return saved ? JSON.parse(saved) : {
+          lenses: ["18mm", "25mm", "35mm", "50mm", "75mm", "85mm", "100mm", "135mm"],
+          tStops: ["T1.3", "T1.8", "T2.0", "T2.8", "T4.0", "T5.6", "T8.0", "T11"],
+          filters: ["Clear", "ND 0.3", "ND 0.6", "ND 0.9", "ND 1.2", "ND 1.5", "Pola"],
+          statusFlags: ["CIRCLE", "WASTE", "MOS", "HIGH SPEED", "VFX", "PICKUP"],
+          quickNotes: ["Good Focus", "Soft Mark", "Actor Flub", "Tail Slate", "Glint Flare", "Boom in Frame"]
+        };
+      });
+
+      const [removeMode, setRemoveMode] = useState({
+        lenses: false, tStops: false, filters: false, statusFlags: false, quickNotes: false
+      });
+
+      // Rolling Stopwatch & Storage State
+      const [isRolling, setIsRolling] = useState(false);
+      const [timerSeconds, setTimerSeconds] = useState(0);
+      const [estTakeGB, setEstTakeGB] = useState(0);
+      const timerRef = useRef(null);
+
+      // Save data locally on changes
+      useEffect(() => { localStorage.setItem('reportr_prod', JSON.stringify(prod)); }, [prod]);
+      useEffect(() => { localStorage.setItem('reportr_rolls', JSON.stringify(rolls)); }, [rolls]);
+      useEffect(() => { localStorage.setItem('reportr_takes', JSON.stringify(takes)); }, [takes]);
+      useEffect(() => { localStorage.setItem('reportr_user_presets', JSON.stringify(userPresets)); }, [userPresets]);
+
+      // Timer Engine
+      useEffect(() => {
+        if (isRolling) {
+          timerRef.current = setInterval(() => {
+            setTimerSeconds(prev => {
+              const nextSec = prev + 1;
+              // Data rate estimate based on ARRIRAW / 24fps baseline
+              const gbPerSec = 0.35; 
+              setEstTakeGB(parseFloat((nextSec * gbPerSec).toFixed(2)));
+              return nextSec;
+            });
+          }, 1000);
+        } else {
+          clearInterval(timerRef.current);
+        }
+        return () => clearInterval(timerRef.current);
+      }, [isRolling]);
+
+      const formatTime = (totalSec) => {
+        const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+        const s = (totalSec % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+      };
+
+      const toggleRolling = () => {
+        if (isRolling) {
+          // CUT pressed
+          setIsRolling(false);
+        } else {
+          // ROLLING pressed
+          setTimerSeconds(0);
+          setEstTakeGB(0);
+          setIsRolling(true);
+        }
+      };
+
+      const logTake = (statusOverride = null) => {
+        const durationStr = formatTime(timerSeconds);
+        const newTake = {
+          id: Date.now(),
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          rollId: activeRoll.id,
+          clipName: `${activeRoll.id}_C${String(takes.length + 1).padStart(3, '0')}`,
+          scene: slate.scene,
+          shot: slate.shot,
+          take: slate.take,
+          lens: slate.lens,
+          tStop: slate.tStop,
+          distance: slate.distance,
+          filter: slate.filter,
+          notes: slate.notes,
+          duration: durationStr,
+          fileSizeGB: estTakeGB > 0 ? estTakeGB : 0.45,
+          circle: statusOverride === 'CIRCLE' || slate.notes.includes('CIRCLE')
+        };
+
+        setTakes([newTake, ...takes]);
+        
+        // Update roll used capacity
+        const addedGB = newTake.fileSizeGB;
+        setRolls(rolls.map(r => r.id === activeRoll.id ? { ...r, usedGB: parseFloat((r.usedGB + addedGB).toFixed(1)) } : r));
+
+        // Auto increment take
+        setSlate(prev => ({ ...prev, take: prev.take + 1, notes: "" }));
+        setIsRolling(false);
+        setTimerSeconds(0);
+        setEstTakeGB(0);
+      };
+
+      const togglePresetRemoveMode = (key) => {
+        setRemoveMode(prev => ({ ...prev, [key]: !prev[key] }));
+      };
+
+      const removePreset = (category, itemToRemove) => {
+        setUserPresets(prev => ({
+          ...prev,
+          [category]: prev[category].filter(item => item !== itemToRemove)
+        }));
+      };
+
+      const addCustomPreset = (category) => {
+        const val = prompt(`Add new ${category} preset:`);
+        if (val && val.trim()) {
+          setUserPresets(prev => ({
+            ...prev,
+            [category]: [...prev[category], val.trim()]
+          }));
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 max-w-md mx-auto border-x border-slate-800 shadow-2xl pb-20">
+          
+          <!-- Top Header Bar -->
+          <header className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center sticky top-0 z-30">
+            <div>
+              <h1 className="text-xl font-black tracking-wider text-blue-500 flex items-center gap-2">
+                REPORTR
+                <span className="text-[10px] bg-blue-950 text-blue-400 px-2 py-0.5 rounded border border-blue-800 font-mono">v1.0</span>
+              </h1>
+              <p className="text-xs text-slate-400 font-medium truncate max-w-[200px]">{prod.title}</p>
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-mono font-bold bg-slate-800 text-slate-300 px-2 py-1 rounded">
+                ROLL: <span className="text-emerald-400">{activeRoll.id}</span>
+              </span>
+            </div>
+          </header>
+
+          <!-- ROLLING / CUT CONTROL BAR -->
+          <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <button
+                onClick={toggleRolling}
+                className={`flex-1 py-3 px-4 rounded-xl font-black text-lg tracking-wider transition-all flex items-center justify-center gap-3 shadow-lg ${
+                  isRolling
+                    ? "bg-red-600 text-white animate-pulse shadow-red-900/50"
+                    : "bg-red-600 hover:bg-red-700 text-white shadow-red-950/30"
+                }`}
+              >
+                <div className={`w-3.5 h-3.5 rounded-full ${isRolling ? "bg-white animate-ping" : "bg-white"}`}></div>
+                {isRolling ? "CUT" : "ROLLING"}
+              </button>
+
+              <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-center min-w-[110px]">
+                <div className="text-[10px] text-slate-400 font-mono tracking-widest">DURATION</div>
+                <div className="text-lg font-mono font-bold text-slate-100">{formatTime(timerSeconds)}</div>
+              </div>
+            </div>
+
+            {isRolling && (
+              <div className="flex justify-between items-center px-2 py-1 bg-red-950/40 rounded border border-red-900/40 text-xs font-mono text-red-300">
+                <span>EST. TAKE SIZE:</span>
+                <span className="font-bold text-red-200">{estTakeGB} GB</span>
+              </div>
+            )}
+          </div>
+
+          <!-- SLATE IDENTIFIERS INPUTS -->
+          <main className="p-4 flex-1 flex flex-col gap-5">
+            <section className="grid grid-cols-3 gap-2 text-center">
+              <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">SCENE</label>
+                <input
+                  type="text"
+                  value={slate.scene}
+                  onChange={e => setSlate({ ...slate, scene: e.target.value })}
+                  className="w-full bg-slate-950 text-xl font-black text-center text-blue-400 rounded py-1 border border-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">SHOT</label>
+                <input
+                  type="text"
+                  value={slate.shot}
+                  onChange={e => setSlate({ ...slate, shot: e.target.value })}
+                  className="w-full bg-slate-950 text-xl font-black text-center text-blue-400 rounded py-1 border border-slate-800 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">TAKE</label>
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setSlate(s => ({ ...s, take: Math.max(1, s.take - 1) }))} className="px-2 py-1 text-slate-400 font-bold bg-slate-800 rounded">-</button>
+                  <span className="text-xl font-black text-emerald-400 font-mono">{slate.take}</span>
+                  <button onClick={() => setSlate(s => ({ ...s, take: s.take + 1 }))} className="px-2 py-1 text-slate-400 font-bold bg-slate-800 rounded">+</button>
+                </div>
+              </div>
+            </section>
+
+            <!-- LENS QUICK SELECTOR WITH + AND - BUTTONS -->
+            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-300">FOCAL LENGTH (LENS)</span>
+                <div className="flex gap-1">
+                  <button onClick={() => addCustomPreset('lenses')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
+                  <button onClick={() => togglePresetRemoveMode('lenses')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.lenses ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                </div>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {userPresets.lenses.map((lens) => (
+                  <button
+                    key={lens}
+                    onClick={() => {
+                      if (removeMode.lenses) removePreset('lenses', lens);
+                      else setSlate({ ...slate, lens });
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
+                      removeMode.lenses
+                        ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : slate.lens === lens
+                        ? "bg-blue-600 text-white border-blue-400 shadow"
+                        : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    {lens} {removeMode.lenses && '✕'}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <!-- T-STOP SELECTOR WITH + AND - BUTTONS -->
+            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-300">APERTURE (T-STOP)</span>
+                <div className="flex gap-1">
+                  <button onClick={() => addCustomPreset('tStops')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
+                  <button onClick={() => togglePresetRemoveMode('tStops')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.tStops ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                </div>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {userPresets.tStops.map((stop) => (
+                  <button
+                    key={stop}
+                    onClick={() => {
+                      if (removeMode.tStops) removePreset('tStops', stop);
+                      else setSlate({ ...slate, tStop: stop });
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
+                      removeMode.tStops
+                        ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : slate.tStop === stop
+                        ? "bg-blue-600 text-white border-blue-400 shadow"
+                        : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    {stop} {removeMode.tStops && '✕'}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <!-- STATUS FLAGS WITH + AND - BUTTONS -->
+            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-300">STATUS FLAGS</span>
+                <div className="flex gap-1">
+                  <button onClick={() => addCustomPreset('statusFlags')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
+                  <button onClick={() => togglePresetRemoveMode('statusFlags')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.statusFlags ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                </div>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {userPresets.statusFlags.map((flag) => (
+                  <button
+                    key={flag}
+                    onClick={() => {
+                      if (removeMode.statusFlags) {
+                        removePreset('statusFlags', flag);
+                      } else {
+                        setSlate(s => ({ ...s, notes: s.notes ? `${s.notes} [${flag}]` : `[${flag}]` }));
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
+                      removeMode.statusFlags
+                        ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : flag === 'CIRCLE'
+                        ? "bg-emerald-950 text-emerald-300 border-emerald-800 hover:bg-emerald-900"
+                        : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    {flag} {removeMode.statusFlags && '✕'}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <!-- QUICK TAKE NOTES WITH + AND - BUTTONS -->
+            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-300">QUICK TAKE NOTES</span>
+                <div className="flex gap-1">
+                  <button onClick={() => addCustomPreset('quickNotes')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
+                  <button onClick={() => togglePresetRemoveMode('quickNotes')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.quickNotes ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                </div>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {userPresets.quickNotes.map((note) => (
+                  <button
+                    key={note}
+                    onClick={() => {
+                      if (removeMode.quickNotes) {
+                        removePreset('quickNotes', note);
+                      } else {
+                        setSlate(s => ({ ...s, notes: s.notes ? `${s.notes}, ${note}` : note }));
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
+                      removeMode.quickNotes
+                        ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    + {note} {removeMode.quickNotes && '✕'}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                placeholder="Custom take notes..."
+                value={slate.notes}
+                onChange={e => setSlate({ ...slate, notes: e.target.value })}
+                rows="2"
+                className="w-full bg-slate-950 text-xs text-slate-200 p-2 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+              />
+            </section>
+
+            <!-- LOG TAKE ACTION BUTTON -->
+            <button
+              onClick={() => logTake()}
+              className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-base tracking-wider rounded-xl shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2"
+            >
+              LOG TAKE {slate.take}
+            </button>
+
+            <!-- RECENT LOGS LOGGED STREAM -->
+            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
+              <h3 className="text-xs font-bold text-slate-400 tracking-wider">RECENT TAKES LOGGED</h3>
+              {takes.length === 0 ? (
+                <p className="text-xs text-slate-500 italic py-2 text-center">No takes logged on this roll yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
+                  {takes.slice(0, 5).map(t => (
+                    <div key={t.id} className="bg-slate-950 p-2 rounded-lg border border-slate-800/80 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-bold text-blue-400">{t.scene}-{t.shot}</span>
+                        <span className="ml-2 font-mono font-black text-emerald-400">TK {t.take}</span>
+                        <span className="ml-2 text-slate-500 font-mono">{t.duration} ({t.fileSizeGB}GB)</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 font-mono">{t.lens} | {t.tStop}</span>
+                        {t.circle && <span className="ml-2 text-[10px] bg-emerald-950 text-emerald-300 px-1 rounded border border-emerald-800">C</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<ReportRApp />);
+  </script>
+</body>
+</html>
