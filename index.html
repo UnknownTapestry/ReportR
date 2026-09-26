@@ -40,7 +40,7 @@
 <body class="antialiased selection:bg-blue-600 selection:text-white">
   <div id="root"></div>
 
-<!-- Register Service Worker for Offline Functionality -->
+  <!-- Register Service Worker for Offline Functionality -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -50,7 +50,10 @@
       });
     }
   </script>
-  
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
     // --- MAIN REPORTR COMPONENT LOGIC ---
     function ReportRApp() {
       // Load saved state or default setup
