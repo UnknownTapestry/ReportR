@@ -1,278 +1,237 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0F172A" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="ReportR" />
-  
-  <title>ReportR • Digital Camera Reports</title>
-  
-  <!-- Manifest & Favicon -->
-  <link rel="manifest" href="manifest.json" />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233B82F6'><path d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm2 2h4v2H6V8zm0 4h8v2H6v-2zm0 4h12v2H6v-2z'/></svg>" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%233B82F6'><path d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm2 2h4v2H6V8zm0 4h8v2H6v-2zm0 4h12v2H6v-2z'/></svg>" />
-
-  <!-- Tailwind CSS & Lucide Icons -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide@latest"></script>
-
-  <!-- React & Babel for Single-File Standalone Execution -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <style>
-    body {
-      background-color: #0B0F17;
-      color: #F3F4F6;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
-    }
-    /* Hide scrollbars for slick mobile look */
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  </style>
-</head>
-<body class="antialiased selection:bg-blue-600 selection:text-white">
-  <div id="root"></div>
-
-  <!-- Register Service Worker for Offline Functionality -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-          .then(reg => console.log('ReportR ServiceWorker registered:', reg.scope))
-          .catch(err => console.log('ReportR ServiceWorker registration failed:', err));
-      });
-    }
-  </script>
-
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
-
-    // --- MAIN REPORTR COMPONENT LOGIC ---
-    function ReportRApp() {
-      // Load saved state or default setup
-      const [prod, setProd] = useState(() => {
-        const saved = localStorage.getItem('reportr_prod');
-        return saved ? JSON.parse(saved) : {
-          title: "UNTITLED PRODUCTION",
-          director: "DIR NAME",
-          dop: "DP NAME",
-          cameraUnit: "A CAM",
-          cameraModel: "ARRI ALEXA Mini LF",
-          fps: "24",
-          resolution: "4.5K Open Gate",
-          codec: "ARRIRAW"
-        };
-      });
-
-      const [rolls, setRolls] = useState(() => {
-        const saved = localStorage.getItem('reportr_rolls');
-        return saved ? JSON.parse(saved) : [{
-          id: "A001",
-          mag: "001",
-          capacityGB: 1000,
-          usedGB: 42.5,
-          soundRoll: "SR001",
-          status: "ACTIVE",
-          codec: "ARRIRAW",
-          fps: "24",
-          notes: "Initial roll"
-        }];
-      });
-
-      const [activeRollId, setActiveRollId] = useState("A001");
-      const activeRoll = rolls.find(r => r.id === activeRollId) || rolls[0] || {};
-
-      const [slate, setSlate] = useState({
-        scene: "101",
-        shot: "A",
-        take: 1,
-        lens: "35mm",
-        tStop: "T2.0",
-        distance: "6' 6\"",
-        filter: "Clear",
-        notes: ""
-      });
-
-      const [takes, setTakes] = useState(() => {
-        const saved = localStorage.getItem('reportr_takes');
-        return saved ? JSON.parse(saved) : [];
-      });
-
-      // Quick-tap Presets State
-      const [userPresets, setUserPresets] = useState(() => {
-        const saved = localStorage.getItem('reportr_user_presets');
-        return saved ? JSON.parse(saved) : {
-          lenses: ["18mm", "25mm", "35mm", "50mm", "75mm", "85mm", "100mm", "135mm"],
-          tStops: ["T1.3", "T1.8", "T2.0", "T2.8", "T4.0", "T5.6", "T8.0", "T11"],
-          filters: ["Clear", "ND 0.3", "ND 0.6", "ND 0.9", "ND 1.2", "ND 1.5", "Pola"],
-          statusFlags: ["CIRCLE", "WASTE", "MOS", "HIGH SPEED", "VFX", "PICKUP"],
-          quickNotes: ["Good Focus", "Soft Mark", "Actor Flub", "Tail Slate", "Glint Flare", "Boom in Frame"]
-        };
-      });
-
-      const [removeMode, setRemoveMode] = useState({
-        lenses: false, tStops: false, filters: false, statusFlags: false, quickNotes: false
-      });
-
-      // Rolling Stopwatch & Storage State
-      const [isRolling, setIsRolling] = useState(false);
-      const [timerSeconds, setTimerSeconds] = useState(0);
-      const [estTakeGB, setEstTakeGB] = useState(0);
-      const timerRef = useRef(null);
-
-      // Save data locally on changes
-      useEffect(() => { localStorage.setItem('reportr_prod', JSON.stringify(prod)); }, [prod]);
-      useEffect(() => { localStorage.setItem('reportr_rolls', JSON.stringify(rolls)); }, [rolls]);
-      useEffect(() => { localStorage.setItem('reportr_takes', JSON.stringify(takes)); }, [takes]);
-      useEffect(() => { localStorage.setItem('reportr_user_presets', JSON.stringify(userPresets)); }, [userPresets]);
-
-      // Timer Engine
-      useEffect(() => {
-        if (isRolling) {
-          timerRef.current = setInterval(() => {
-            setTimerSeconds(prev => {
-              const nextSec = prev + 1;
-              // Data rate estimate based on ARRIRAW / 24fps baseline
-              const gbPerSec = 0.35; 
-              setEstTakeGB(parseFloat((nextSec * gbPerSec).toFixed(2)));
-              return nextSec;
-            });
-          }, 1000);
-        } else {
-          clearInterval(timerRef.current);
-        }
-        return () => clearInterval(timerRef.current);
-      }, [isRolling]);
-
-      const formatTime = (totalSec) => {
-        const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
-        const s = (totalSec % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
-      };
-
-      const toggleRolling = () => {
-        if (isRolling) {
-          // CUT pressed
-          setIsRolling(false);
-        } else {
-          // ROLLING pressed
-          setTimerSeconds(0);
-          setEstTakeGB(0);
-          setIsRolling(true);
-        }
-      };
-
-      const logTake = (statusOverride = null) => {
-        const durationStr = formatTime(timerSeconds);
-        const newTake = {
-          id: Date.now(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          rollId: activeRoll.id,
-          clipName: `${activeRoll.id}_C${String(takes.length + 1).padStart(3, '0')}`,
-          scene: slate.scene,
-          shot: slate.shot,
-          take: slate.take,
-          lens: slate.lens,
-          tStop: slate.tStop,
-          distance: slate.distance,
-          filter: slate.filter,
-          notes: slate.notes,
-          duration: durationStr,
-          fileSizeGB: estTakeGB > 0 ? estTakeGB : 0.45,
-          circle: statusOverride === 'CIRCLE' || slate.notes.includes('CIRCLE')
-        };
-
-        setTakes([newTake, ...takes]);
-        
-        // Update roll used capacity
-        const addedGB = newTake.fileSizeGB;
-        setRolls(rolls.map(r => r.id === activeRoll.id ? { ...r, usedGB: parseFloat((r.usedGB + addedGB).toFixed(1)) } : r));
-
-        // Auto increment take
-        setSlate(prev => ({ ...prev, take: prev.take + 1, notes: "" }));
-        setIsRolling(false);
-        setTimerSeconds(0);
-        setEstTakeGB(0);
-      };
-
-      const togglePresetRemoveMode = (key) => {
-        setRemoveMode(prev => ({ ...prev, [key]: !prev[key] }));
-      };
-
-      const removePreset = (category, itemToRemove) => {
-        setUserPresets(prev => ({
-          ...prev,
-          [category]: prev[category].filter(item => item !== itemToRemove)
-        }));
-      };
-
-      const addCustomPreset = (category) => {
-        const val = prompt(`Add new ${category} preset:`);
-        if (val && val.trim()) {
-          setUserPresets(prev => ({
-            ...prev,
-            [category]: [...prev[category], val.trim()]
-          }));
-        }
-      };
-
-      return (
-        <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 max-w-md mx-auto border-x border-slate-800 shadow-2xl pb-20">
-          
-          <!-- Top Header Bar -->
-          <header className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center sticky top-0 z-30">
-            <div>
-              <h1 className="text-xl font-black tracking-wider text-blue-500 flex items-center gap-2">
-                REPORTR
-                <span className="text-[10px] bg-blue-950 text-blue-400 px-2 py-0.5 rounded border border-blue-800 font-mono">v1.0</span>
-              </h1>
-              <p className="text-xs text-slate-400 font-medium truncate max-w-[200px]">{prod.title}</p>
-            </div>
-            <div className="text-right">
-              <span className="text-xs font-mono font-bold bg-slate-800 text-slate-300 px-2 py-1 rounded">
-                ROLL: <span className="text-emerald-400">{activeRoll.id}</span>
-              </span>
-            </div>
-          </header>
-
-          <!-- ROLLING / CUT CONTROL BAR -->
-          <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-3">
-              <button
-                onClick={toggleRolling}
-                className={`flex-1 py-3 px-4 rounded-xl font-black text-lg tracking-wider transition-all flex items-center justify-center gap-3 shadow-lg ${
-                  isRolling
-                    ? "bg-red-600 text-white animate-pulse shadow-red-900/50"
-                    : "bg-red-600 hover:bg-red-700 text-white shadow-red-950/30"
-                }`}
-              >
-                <div className={`w-3.5 h-3.5 rounded-full ${isRolling ? "bg-white animate-ping" : "bg-white"}`}></div>
-                {isRolling ? "CUT" : "ROLLING"}
-              </button>
-
-              <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-center min-w-[110px]">
-                <div className="text-[10px] text-slate-400 font-mono tracking-widest">DURATION</div>
-                <div className="text-lg font-mono font-bold text-slate-100">{formatTime(timerSeconds)}</div>
-              </div>
-            </div>
-
-            {isRolling && (
-              <div className="flex justify-between items-center px-2 py-1 bg-red-950/40 rounded border border-red-900/40 text-xs font-mono text-red-300">
-                <span>EST. TAKE SIZE:</span>
-                <span className="font-bold text-red-200">{estTakeGB} GB</span>
-              </div>
-            )}
+      </head>
+      <body>
+        <header>
+          <div>
+            <h1>CAMERA REPORT: ${prod.title}</h1>
+            <div>Camera Unit: <b>${prod.cameraUnit}</b> | Shooting Day: <b>${dayName}</b></div>
           </div>
+          <div>Date: ${new Date().toLocaleDateString()}</div>
+        </header>
 
-          <!-- SLATE IDENTIFIERS INPUTS -->
-          <main className="p-4 flex-1 flex flex-col gap-5">
+        <div class="meta-grid">
+          <div class="meta-item"><label>DIRECTOR</label><span>${prod.director || '-'}</span></div>
+          <div class="meta-item"><label>DP / CINEMATOGRAPHER</label><span>${prod.dp || '-'}</span></div>
+          <div class="meta-item"><label>FPS / SHUTTER</label><span>${prod.fps} fps / ${prod.shutter}</span></div>
+          <div class="meta-item"><label>ISO / CODEC</label><span>${prod.iso} / ${prod.codec}</span></div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Clip Name</th>
+              <th>Sc / Sh / Tk</th>
+              <th>Lens / T-Stop</th>
+              <th>Duration</th>
+              <th>Roll</th>
+              <th>Notes / Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${dayTakes.length === 0 ? '<tr><td colspan="6" style="text-align:center; padding: 20px;">No takes recorded for this day.</td></tr>' : 
+              dayTakes.map(t => `
+                <tr>
+                  <td><b>${t.clipName}</b></td>
+                  <td>S:${t.scene} Sh:${t.shot} Tk:${t.take}</td>
+                  <td>${t.lens} / ${t.tStop}</td>
+                  <td>${t.duration}</td>
+                  <td>${t.rollId}</td>
+                  <td>${t.circle ? '<span class="circle-badge">★ CIRCLE</span> ' : ''} ${t.notes || '-'}</td>
+                </tr>
+              `).join('')
+            }
+          </tbody>
+        </table>
+
+        <footer>
+          <div>Report generated via ReportR Pro</div>
+          <div>Camera Crew Sign-off: _______________________</div>
+        </footer>
+
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  };
+
+  const handleGeminiVoiceAssistant = async () => {
+    if (!voiceLogInput.trim()) return;
+    setAiLoading(true);
+
+    try {
+      const systemPrompt = `You are a digital camera assistant. Parse the user's spoken or typed take description into a JSON object with fields: 
+      {
+        "scene": "string or current",
+        "shot": "string or current",
+        "lens": "string",
+        "tStop": "string",
+        "notes": "string summary"
+      }
+      Return ONLY valid JSON.`;
+
+      const apiKey = "";
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+      
+      const payload = {
+        contents: [{ parts: [{ text: `Current Scene: ${slate.scene}, Shot: ${slate.shot}. User notes: "${voiceLogInput}"` }] }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              scene: { type: "STRING" },
+              shot: { type: "STRING" },
+              lens: { type: "STRING" },
+              tStop: { type: "STRING" },
+              notes: { type: "STRING" }
+            },
+            propertyOrdering: ["scene", "shot", "lens", "tStop", "notes"]
+          }
+        },
+        systemInstruction: { parts: [{ text: systemPrompt }] }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsed = JSON.parse(jsonText);
+        setSlate(prev => ({
+          ...prev,
+          scene: parsed.scene || prev.scene,
+          shot: parsed.shot || prev.shot,
+          lens: parsed.lens || prev.lens,
+          tStop: parsed.tStop || prev.tStop,
+          notes: parsed.notes ? `${prev.notes} | ${parsed.notes}` : prev.notes
+        }));
+        setVoiceLogInput("");
+        setActiveTab("slate");
+      }
+    } catch (err) {
+      console.error("Failed to parse voice command:", err);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-950 text-slate-100 max-w-md mx-auto border-x border-slate-800 shadow-2xl pb-24">
+      <header className="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center sticky top-0 z-30">
+        <div>
+          <h1 className="text-xl font-black tracking-wider text-blue-500 flex items-center gap-2">
+            REPORTR
+            <span className="text-[10px] bg-blue-950 text-blue-400 px-2 py-0.5 rounded border border-blue-800 font-mono">PRO v1.8</span>
+          </h1>
+          <p className="text-xs text-slate-400 font-medium truncate max-w-[180px]">{prod.title} ({prod.cameraUnit}) [{activeDay}]</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono font-bold bg-slate-800 text-slate-300 px-2 py-1 rounded">
+            ROLL: <span className="text-emerald-400">{activeRoll.id}</span>
+          </span>
+        </div>
+      </header>
+
+      <nav className="bg-slate-900 px-2 py-2 border-b border-slate-800 grid grid-cols-5 gap-1">
+        <button
+          onClick={() => setActiveTab('slate')}
+          className={`py-2 text-[10px] font-bold rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 ${
+            activeTab === 'slate' ? 'bg-blue-600 text-white shadow' : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>🎬</span>
+          <span>Slate</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('rolls')}
+          className={`py-2 text-[10px] font-bold rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 ${
+            activeTab === 'rolls' ? 'bg-blue-600 text-white shadow' : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>💾</span>
+          <span>Rolls</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('takes')}
+          className={`py-2 text-[10px] font-bold rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 ${
+            activeTab === 'takes' ? 'bg-blue-600 text-white shadow' : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>📋</span>
+          <span>Log</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('setup')}
+          className={`py-2 text-[10px] font-bold rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 ${
+            activeTab === 'setup' ? 'bg-blue-600 text-white shadow' : 'bg-slate-950 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <span>⚙️</span>
+          <span>Setup</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('ai')}
+          className={`py-2 text-[10px] font-bold rounded-lg transition-all flex flex-col items-center justify-center gap-0.5 ${
+            activeTab === 'ai' ? 'bg-purple-600 text-white shadow' : 'bg-slate-950 text-purple-300 hover:text-purple-100'
+          }`}
+        >
+          <span>✨</span>
+          <span>Gemini</span>
+        </button>
+      </nav>
+
+      <div className="p-3 bg-slate-900 border-b border-slate-800 flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <button
+            onClick={toggleRolling}
+            className={`flex-1 py-3 px-4 rounded-xl font-black text-lg tracking-wider transition-all flex items-center justify-center gap-3 shadow-lg ${
+              isRolling
+                ? "bg-red-600 text-white animate-pulse shadow-red-900/50"
+                : "bg-red-600 hover:bg-red-700 text-white shadow-red-950/30"
+            }`}
+          >
+            <div className={`w-3.5 h-3.5 rounded-full ${isRolling ? "bg-white animate-ping" : "bg-white"}`}></div>
+            {isRolling ? "CUT" : "ROLLING"}
+          </button>
+
+          <div className="bg-slate-950 px-4 py-2 rounded-xl border border-slate-800 text-center min-w-[110px]">
+            <div className="text-[10px] text-slate-400 font-mono tracking-widest">DURATION</div>
+            <div className="text-lg font-mono font-bold text-slate-100">{formatTime(timerSeconds)}</div>
+          </div>
+        </div>
+
+        {isRolling && (
+          <div className="flex justify-between items-center px-2 py-1 bg-red-950/40 rounded border border-red-900/40 text-xs font-mono text-red-300">
+            <span>EST. TAKE SIZE:</span>
+            <span className="font-bold text-red-200">{estTakeGB} GB</span>
+          </div>
+        )}
+      </div>
+
+      <main className="p-4 flex-1 flex flex-col gap-5">
+        {activeTab === 'slate' && (
+          <>
+            <div className="flex justify-between items-center bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+              <span className="text-[10px] font-bold text-slate-400">ACTIVE SHOOTING DAY:</span>
+              <select
+                value={activeDay}
+                onChange={e => setActiveDay(e.target.value)}
+                className="bg-slate-950 text-xs text-blue-400 font-bold px-3 py-1 rounded border border-slate-800 focus:outline-none"
+              >
+                {shootingDays.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+
             <section className="grid grid-cols-3 gap-2 text-center">
               <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
                 <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">SCENE</label>
@@ -283,15 +242,21 @@
                   className="w-full bg-slate-950 text-xl font-black text-center text-blue-400 rounded py-1 border border-slate-800 focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+
+              <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800 flex flex-col justify-between">
                 <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">SHOT</label>
-                <input
-                  type="text"
-                  value={slate.shot}
-                  onChange={e => setSlate({ ...slate, shot: e.target.value })}
-                  className="w-full bg-slate-950 text-xl font-black text-center text-blue-400 rounded py-1 border border-slate-800 focus:outline-none focus:border-blue-500"
-                />
+                <div className="flex items-center justify-between gap-1">
+                  <button onClick={() => adjustShot('down')} className="px-1.5 py-1 text-slate-400 font-bold bg-slate-800 rounded text-xs">-</button>
+                  <input
+                    type="text"
+                    value={slate.shot}
+                    onChange={e => setSlate({ ...slate, shot: e.target.value })}
+                    className="w-full bg-slate-950 text-lg font-black text-center text-blue-400 rounded py-1 border border-slate-800 focus:outline-none focus:border-blue-500"
+                  />
+                  <button onClick={() => adjustShot('up')} className="px-1.5 py-1 text-slate-400 font-bold bg-slate-800 rounded text-xs">+</button>
+                </div>
               </div>
+
               <div className="bg-slate-900 p-2.5 rounded-xl border border-slate-800">
                 <label className="text-[10px] font-bold text-slate-400 tracking-wider block mb-1">TAKE</label>
                 <div className="flex items-center justify-between">
@@ -302,13 +267,13 @@
               </div>
             </section>
 
-            <!-- LENS QUICK SELECTOR WITH + AND - BUTTONS -->
             <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-300">FOCAL LENGTH (LENS)</span>
                 <div className="flex gap-1">
-                  <button onClick={() => addCustomPreset('lenses')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
-                  <button onClick={() => togglePresetRemoveMode('lenses')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.lenses ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                  <button onClick={() => addCustomPreset('lenses')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+ Add</button>
+                  <button onClick={() => togglePresetEditMode('lenses')} className={`text-xs px-2 py-0.5 rounded border font-bold ${editMode.lenses ? "bg-amber-600 text-white border-amber-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✎ Edit</button>
+                  <button onClick={() => togglePresetRemoveMode('lenses')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.lenses ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✕</button>
                 </div>
               </div>
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
@@ -317,29 +282,32 @@
                     key={lens}
                     onClick={() => {
                       if (removeMode.lenses) removePreset('lenses', lens);
+                      else if (editMode.lenses) editPreset('lenses', lens);
                       else setSlate({ ...slate, lens });
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
                       removeMode.lenses
                         ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : editMode.lenses
+                        ? "bg-amber-950/60 border-amber-500 text-amber-200 animate-bounce"
                         : slate.lens === lens
                         ? "bg-blue-600 text-white border-blue-400 shadow"
                         : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    {lens} {removeMode.lenses && '✕'}
+                    {lens} {removeMode.lenses ? '✕' : editMode.lenses ? '✎' : ''}
                   </button>
                 ))}
               </div>
             </section>
 
-            <!-- T-STOP SELECTOR WITH + AND - BUTTONS -->
             <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-300">APERTURE (T-STOP)</span>
                 <div className="flex gap-1">
-                  <button onClick={() => addCustomPreset('tStops')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
-                  <button onClick={() => togglePresetRemoveMode('tStops')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.tStops ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                  <button onClick={() => addCustomPreset('tStops')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+ Add</button>
+                  <button onClick={() => togglePresetEditMode('tStops')} className={`text-xs px-2 py-0.5 rounded border font-bold ${editMode.tStops ? "bg-amber-600 text-white border-amber-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✎ Edit</button>
+                  <button onClick={() => togglePresetRemoveMode('tStops')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.tStops ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✕</button>
                 </div>
               </div>
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
@@ -348,29 +316,32 @@
                     key={stop}
                     onClick={() => {
                       if (removeMode.tStops) removePreset('tStops', stop);
+                      else if (editMode.tStops) editPreset('tStops', stop);
                       else setSlate({ ...slate, tStop: stop });
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
                       removeMode.tStops
                         ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : editMode.tStops
+                        ? "bg-amber-950/60 border-amber-500 text-amber-200 animate-bounce"
                         : slate.tStop === stop
                         ? "bg-blue-600 text-white border-blue-400 shadow"
                         : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    {stop} {removeMode.tStops && '✕'}
+                    {stop} {removeMode.tStops ? '✕' : editMode.tStops ? '✎' : ''}
                   </button>
                 ))}
               </div>
             </section>
 
-            <!-- STATUS FLAGS WITH + AND - BUTTONS -->
             <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-300">STATUS FLAGS</span>
                 <div className="flex gap-1">
-                  <button onClick={() => addCustomPreset('statusFlags')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
-                  <button onClick={() => togglePresetRemoveMode('statusFlags')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.statusFlags ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                  <button onClick={() => addCustomPreset('statusFlags')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+ Add</button>
+                  <button onClick={() => togglePresetEditMode('statusFlags')} className={`text-xs px-2 py-0.5 rounded border font-bold ${editMode.statusFlags ? "bg-amber-600 text-white border-amber-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✎ Edit</button>
+                  <button onClick={() => togglePresetRemoveMode('statusFlags')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.statusFlags ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✕</button>
                 </div>
               </div>
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
@@ -378,33 +349,33 @@
                   <button
                     key={flag}
                     onClick={() => {
-                      if (removeMode.statusFlags) {
-                        removePreset('statusFlags', flag);
-                      } else {
-                        setSlate(s => ({ ...s, notes: s.notes ? `${s.notes} [${flag}]` : `[${flag}]` }));
-                      }
+                      if (removeMode.statusFlags) removePreset('statusFlags', flag);
+                      else if (editMode.statusFlags) editPreset('statusFlags', flag);
+                      else setSlate(s => ({ ...s, notes: s.notes ? `${s.notes} [${flag}]` : `[${flag}]` }));
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
                       removeMode.statusFlags
                         ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : editMode.statusFlags
+                        ? "bg-amber-950/60 border-amber-500 text-amber-200 animate-bounce"
                         : flag === 'CIRCLE'
                         ? "bg-emerald-950 text-emerald-300 border-emerald-800 hover:bg-emerald-900"
                         : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    {flag} {removeMode.statusFlags && '✕'}
+                    {flag} {removeMode.statusFlags ? '✕' : editMode.statusFlags ? '✎' : ''}
                   </button>
                 ))}
               </div>
             </section>
 
-            <!-- QUICK TAKE NOTES WITH + AND - BUTTONS -->
             <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-slate-300">QUICK TAKE NOTES</span>
                 <div className="flex gap-1">
-                  <button onClick={() => addCustomPreset('quickNotes')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+</button>
-                  <button onClick={() => togglePresetRemoveMode('quickNotes')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.quickNotes ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>-</button>
+                  <button onClick={() => addCustomPreset('quickNotes')} className="text-xs px-2 py-0.5 bg-blue-900/50 text-blue-300 rounded border border-blue-700 font-bold">+ Add</button>
+                  <button onClick={() => togglePresetEditMode('quickNotes')} className={`text-xs px-2 py-0.5 rounded border font-bold ${editMode.quickNotes ? "bg-amber-600 text-white border-amber-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✎ Edit</button>
+                  <button onClick={() => togglePresetRemoveMode('quickNotes')} className={`text-xs px-2 py-0.5 rounded border font-bold ${removeMode.quickNotes ? "bg-red-600 text-white border-red-500" : "bg-slate-800 text-slate-400 border-slate-700"}`}>✕</button>
                 </div>
               </div>
               <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
@@ -412,19 +383,19 @@
                   <button
                     key={note}
                     onClick={() => {
-                      if (removeMode.quickNotes) {
-                        removePreset('quickNotes', note);
-                      } else {
-                        setSlate(s => ({ ...s, notes: s.notes ? `${s.notes}, ${note}` : note }));
-                      }
+                      if (removeMode.quickNotes) removePreset('quickNotes', note);
+                      else if (editMode.quickNotes) editPreset('quickNotes', note);
+                      else setSlate(s => ({ ...s, notes: s.notes ? `${s.notes}, ${note}` : note }));
                     }}
                     className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
                       removeMode.quickNotes
                         ? "bg-red-950/60 border-red-500 text-red-200 animate-pulse"
+                        : editMode.quickNotes
+                        ? "bg-amber-950/60 border-amber-500 text-amber-200 animate-bounce"
                         : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
                     }`}
                   >
-                    + {note} {removeMode.quickNotes && '✕'}
+                    + {note} {removeMode.quickNotes ? '✕' : editMode.quickNotes ? '✎' : ''}
                   </button>
                 ))}
               </div>
@@ -437,43 +408,334 @@
               />
             </section>
 
-            <!-- LOG TAKE ACTION BUTTON -->
             <button
               onClick={() => logTake()}
               className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-base tracking-wider rounded-xl shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2"
             >
-              LOG TAKE {slate.take}
+              LOG TAKE {slate.take} ({activeDay})
             </button>
+          </>
+        )}
 
-            <!-- RECENT LOGS LOGGED STREAM -->
-            <section className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2">
-              <h3 className="text-xs font-bold text-slate-400 tracking-wider">RECENT TAKES LOGGED</h3>
-              {takes.length === 0 ? (
-                <p className="text-xs text-slate-500 italic py-2 text-center">No takes logged on this roll yet.</p>
-              ) : (
-                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1">
-                  {takes.slice(0, 5).map(t => (
-                    <div key={t.id} className="bg-slate-950 p-2 rounded-lg border border-slate-800/80 flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-blue-400">{t.scene}-{t.shot}</span>
-                        <span className="ml-2 font-mono font-black text-emerald-400">TK {t.take}</span>
-                        <span className="ml-2 text-slate-500 font-mono">{t.duration} ({t.fileSizeGB}GB)</span>
+        {activeTab === 'rolls' && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-3">
+              <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Camera Rolls & Media Management</h2>
+              <p className="text-xs text-slate-400">Select active roll or initialize a new card/mag for the camera unit.</p>
+              
+              <div className="flex flex-col gap-2.5 mt-1">
+                {rolls.map(roll => {
+                  const pct = Math.min(100, Math.round((roll.usedGB / roll.capacityGB) * 100));
+                  const isSelected = roll.id === activeRollId;
+                  return (
+                    <div
+                      key={roll.id}
+                      onClick={() => setActiveRollId(roll.id)}
+                      className={`p-3 rounded-xl border cursor-pointer transition-all flex flex-col gap-2 ${
+                        isSelected ? 'bg-blue-950/40 border-blue-500 shadow' : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-mono font-bold text-sm text-slate-200 flex items-center gap-2">
+                          {roll.id}
+                          {isSelected && <span className="text-[10px] bg-blue-600 text-white px-1.5 py-0.5 rounded">ACTIVE</span>}
+                        </span>
+                        <span className="text-xs font-mono text-slate-400">{roll.usedGB} GB / {roll.capacityGB} GB ({pct}%)</span>
                       </div>
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-400 font-mono">{t.lens} | {t.tStop}</span>
-                        {t.circle && <span className="ml-2 text-[10px] bg-emerald-950 text-emerald-300 px-1 rounded border border-emerald-800">C</span>}
+                      <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
+                        <div
+                          className={`h-full transition-all ${pct > 85 ? 'bg-red-500' : pct > 65 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                          style={{ width: `${pct}%` }}
+                        ></div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </main>
-        </div>
-      );
-    }
+                  );
+                })}
+              </div>
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<ReportRApp />);
-  </script>
-</body>
-</html>
+              <button
+                onClick={() => {
+                  const nextIdNumber = rolls.length + 1;
+                  const newRollId = `A${String(nextIdNumber).padStart(3, '0')}`;
+                  setRolls([...rolls, { id: newRollId, mag: String(nextIdNumber), capacityGB: 1000, usedGB: 0, status: "STANDBY" }]);
+                }}
+                className="mt-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg shadow"
+              >
+                + Initialize New Roll / Mag
+              </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'takes' && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2.5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs font-bold text-slate-300">SELECT SHOOTING DAY</span>
+                <button
+                  onClick={() => {
+                    const dayNum = shootingDays.length + 1;
+                    const newDayName = `Day ${dayNum}`;
+                    setShootingDays([...shootingDays, newDayName]);
+                    setActiveDay(newDayName);
+                  }}
+                  className="text-xs bg-blue-900/50 hover:bg-blue-900 text-blue-300 border border-blue-700 px-2.5 py-1 rounded font-bold"
+                >
+                  + Add New Day
+                </button>
+              </div>
+
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                {shootingDays.map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setActiveDay(d)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all whitespace-nowrap ${
+                      activeDay === d ? 'bg-blue-600 text-white border-blue-400 shadow' : 'bg-slate-950 text-slate-400 border-slate-800'
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => exportPDFReport(activeDay)}
+                className="w-full py-2.5 bg-emerald-700 hover:bg-emerald-600 active:bg-emerald-800 text-white font-bold text-xs tracking-wider rounded-lg shadow flex items-center justify-center gap-2"
+              >
+                📄 Export PDF Camera Report ({activeDay})
+              </button>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-slate-400 tracking-wider">LOGGED TAKES FOR {activeDay.toUpperCase()}</h2>
+              <span className="text-xs font-mono text-slate-400">
+                {takes.filter(t => (t.day || "Day 1") === activeDay).length} takes
+              </span>
+            </div>
+
+            {takes.filter(t => (t.day || "Day 1") === activeDay).length === 0 ? (
+              <p className="text-xs text-slate-500 italic py-6 text-center">No takes logged for {activeDay} yet.</p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {takes.filter(t => (t.day || "Day 1") === activeDay).map(t => (
+                  <div key={t.id} className="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-col gap-2 text-xs">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-1.5">
+                      <span className="font-mono font-bold text-blue-400">{t.clipName}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{t.timestamp} ({t.rollId})</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500">Sc:</span>
+                        <input
+                          type="text"
+                          value={t.scene}
+                          onChange={e => updateLoggedTake(t.id, 'scene', e.target.value)}
+                          className="w-10 bg-slate-950 text-blue-400 font-bold text-center rounded border border-slate-800 py-0.5"
+                        />
+                        <span className="text-slate-500">Sh:</span>
+                        <input
+                          type="text"
+                          value={t.shot}
+                          onChange={e => updateLoggedTake(t.id, 'shot', e.target.value)}
+                          className="w-8 bg-slate-950 text-blue-400 font-bold text-center rounded border border-slate-800 py-0.5"
+                        />
+                        <span className="text-slate-500">Tk:</span>
+                        <input
+                          type="number"
+                          value={t.take}
+                          onChange={e => updateLoggedTake(t.id, 'take', parseInt(e.target.value) || 1)}
+                          className="w-10 bg-slate-950 text-emerald-400 font-black font-mono text-center rounded border border-slate-800 py-0.5"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const newCircle = !t.circle;
+                          setTakes(takes.map(item => item.id === t.id ? { ...item, circle: newCircle } : item));
+                        }}
+                        className={`px-2 py-0.5 rounded font-bold text-[10px] border ${t.circle ? 'bg-emerald-950 text-emerald-300 border-emerald-700' : 'bg-slate-950 text-slate-500 border-slate-800'}`}
+                      >
+                        {t.circle ? '★ CIRCLE' : '☆ Circle'}
+                      </button>
+                    </div>
+
+                    <div className="flex justify-between text-[11px] font-mono text-slate-300">
+                      <span>{t.lens} / {t.tStop}</span>
+                      <span>Dur: {t.duration}</span>
+                      <span>{t.fileSizeGB} GB</span>
+                    </div>
+
+                    {t.notes && (
+                      <div className="text-[11px] bg-slate-950 p-1.5 rounded text-slate-400 border border-slate-800/60 font-mono">
+                        {t.notes}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'setup' && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-3">
+              <h2 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Production Setup & Camera Settings</h2>
+              
+              <div className="flex flex-col gap-3 mt-1">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">SLATING STANDARD</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => handleSlatingStandardChange('US')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all ${
+                        (prod.slatingStandard || 'US') === 'US'
+                          ? 'bg-blue-600 text-white border-blue-400 shadow'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      🇺🇸 US Standard (Shot A)
+                    </button>
+                    <button
+                      onClick={() => handleSlatingStandardChange('UK')}
+                      className={`py-2 px-3 rounded-lg text-xs font-bold border transition-all ${
+                        prod.slatingStandard === 'UK'
+                          ? 'bg-blue-600 text-white border-blue-400 shadow'
+                          : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      🇬🇧 UK Standard (Shot 1)
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 block mb-1">PRODUCTION TITLE</label>
+                  <input
+                    type="text"
+                    value={prod.title}
+                    onChange={e => setProd({ ...prod, title: e.target.value })}
+                    className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">DIRECTOR</label>
+                    <input
+                      type="text"
+                      value={prod.director}
+                      onChange={e => setProd({ ...prod, director: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">DP / CINEMATOGRAPHER</label>
+                    <input
+                      type="text"
+                      value={prod.dp}
+                      onChange={e => setProd({ ...prod, dp: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">CAMERA UNIT</label>
+                    <input
+                      type="text"
+                      value={prod.cameraUnit}
+                      onChange={e => setProd({ ...prod, cameraUnit: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">FRAME RATE (FPS)</label>
+                    <input
+                      type="text"
+                      value={prod.fps}
+                      onChange={e => setProd({ ...prod, fps: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">SHUTTER</label>
+                    <input
+                      type="text"
+                      value={prod.shutter}
+                      onChange={e => setProd({ ...prod, shutter: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">ISO</label>
+                    <input
+                      type="text"
+                      value={prod.iso}
+                      onChange={e => setProd({ ...prod, iso: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono text-center"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 block mb-1">CODEC</label>
+                    <input
+                      type="text"
+                      value={prod.codec}
+                      onChange={e => setProd({ ...prod, codec: e.target.value })}
+                      className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500 font-mono text-center"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={saveEntireProjectState}
+                  className="mt-3 w-full py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-xs tracking-wider rounded-xl shadow transition-all flex items-center justify-center gap-2"
+                >
+                  💾 Save & Lock Project State
+                </button>
+
+                {saveStatusMessage && (
+                  <div className="p-2 bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs text-center font-mono rounded-lg animate-pulse">
+                    {saveStatusMessage}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'ai' && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-slate-900 p-4 rounded-xl border border-blue-900/50 flex flex-col gap-3">
+              <span className="text-xs font-bold text-blue-300 flex items-center gap-1.5">
+                🎙️ AI Smart Slate Assistant
+              </span>
+              <p className="text-xs text-slate-400">Describe the take in plain language (e.g. "Scene 102 shot B on 50mm wide open"):</p>
+              <input
+                type="text"
+                value={voiceLogInput}
+                onChange={e => setVoiceLogInput(e.target.value)}
+                placeholder="Type take details or voice notes..."
+                className="w-full bg-slate-950 text-xs text-slate-200 p-2.5 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+              />
+              <button
+                onClick={handleGeminiVoiceAssistant}
+                disabled={aiLoading}
+                className="py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold text-xs rounded-lg shadow transition-all flex items-center justify-center gap-2"
+              >
+                {aiLoading ? "Parsing..." : "Auto-Fill Slate & Notes"}
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ReportRApp />);
